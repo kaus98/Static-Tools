@@ -5717,17 +5717,17 @@ const ContactPage = memo(function ContactPage() {
     () => [
       {
         label: "LinkedIn",
-        href: "https://www.linkedin.com/in/kauspathak",
+        href: "https://www.linkedin.com/in/kaus98",
         description: "Connect professionally and explore recent product updates."
       },
       {
         label: "GitHub",
-        href: "https://github.com/KausPathak",
+        href: "https://github.com/kaus98",
         description: "Browse open-source experiments, utilities, and contributions."
       },
       {
         label: "Kaggle",
-        href: "https://www.kaggle.com/kauspathak",
+        href: "https://www.kaggle.com/terminate9298",
         description: "Follow data science notebooks, competitions, and insights."
       }
     ],
@@ -5757,7 +5757,7 @@ const ContactPage = memo(function ContactPage() {
       </div>
       <div className="page-card glass-card contact-note">
         <h2>Stay in touch</h2>
-        <p>Prefer email or another channel? Drop a note through any profile's messaging and we'll connect.</p>
+        <p>Email <a href="mailto:kaus.pathak@gmail.com">kaus.pathak@gmail.com</a> or drop a note through any profile's messaging and we'll connect.</p>
       </div>
     </section>
   );
