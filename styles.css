@@ -759,6 +759,70 @@ a {
   box-shadow: var(--shadow-md);
 }
 
+.csv-diff-table {
+  margin-top: 18px;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  box-shadow: var(--shadow-sm);
+}
+
+.csv-diff-row {
+  display: grid;
+  grid-template-columns: 90px minmax(140px, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px 18px;
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+  align-items: center;
+}
+
+.csv-diff-row:nth-child(even) {
+  background: rgba(226, 232, 255, 0.32);
+}
+
+.csv-diff-row:last-child {
+  border-bottom: none;
+}
+
+.csv-diff-header {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.16), rgba(129, 140, 248, 0.18));
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--primary-dark);
+}
+
+.csv-diff-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(37, 99, 235, 0.15);
+  color: var(--primary-dark);
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 6px 12px;
+  min-width: 52px;
+}
+
+.csv-diff-row span {
+  word-break: break-all;
+}
+
+.comparison-summary {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  padding: 18px;
+  border-radius: 16px;
+}
+
+.comparison-summary p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
 .contact-note {
   padding: 24px;
   max-width: 640px;

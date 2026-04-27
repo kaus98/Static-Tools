@@ -87,6 +87,80 @@ function toCsv(rows) {
   return lines.join("\n");
 }
 
+function parseCsv(text) {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return { headers: [], rows: [], error: "CSV input is empty." };
+  }
+
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const rows = [];
+  let currentRow = [];
+  let currentValue = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < normalized.length; i += 1) {
+    const char = normalized[i];
+
+    if (char === '"') {
+      if (inQuotes && normalized[i + 1] === '"') {
+        currentValue += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === "," && !inQuotes) {
+      currentRow.push(currentValue.trim());
+      currentValue = "";
+      continue;
+    }
+
+    if (char === "\n" && !inQuotes) {
+      currentRow.push(currentValue.trim());
+      rows.push(currentRow);
+      currentRow = [];
+      currentValue = "";
+      continue;
+    }
+
+    currentValue += char;
+  }
+
+  currentRow.push(currentValue.trim());
+  rows.push(currentRow);
+
+  const filteredRows = rows.filter((row) => row.some((cell) => cell !== ""));
+  if (!filteredRows.length) {
+    return { headers: [], rows: [], error: "CSV input is empty." };
+  }
+
+  const headers = filteredRows[0];
+  if (headers.some((header) => !header)) {
+    return { headers: [], rows: [], error: "All header columns require a name." };
+  }
+
+  const seenHeaders = new Set();
+  for (const header of headers) {
+    if (seenHeaders.has(header)) {
+      return { headers: [], rows: [], error: `Duplicate header "${header}" detected.` };
+    }
+    seenHeaders.add(header);
+  }
+
+  const dataRows = filteredRows.slice(1).map((row) => {
+    const entry = {};
+    headers.forEach((header, index) => {
+      entry[header] = row[index] ?? "";
+    });
+    return entry;
+  });
+
+  return { headers, rows: dataRows };
+}
+
 function decodeJwt(token) {
   const [header, payload] = token.split(".");
   if (!header || !payload) {
@@ -2340,6 +2414,180 @@ function JsonToCsv() {
       </div>
       <div className="row-actions"><button onClick={convert}>Convert</button></div>
       {status && <p className={status === "CSV generated." ? "status success" : "status error"}>{status}</p>}
+  </ToolLayout>
+);
+}
+
+function CsvToJsonTool() {
+  const [input, setInput] = useState("name,role\nAlex,Engineer\nSam,Designer");
+  const [output, setOutput] = useState("");
+  const [status, setStatus] = useState("");
+
+  const convert = () => {
+    if (!input.trim()) {
+      setStatus("CSV input is required.");
+      setOutput("");
+      return;
+    }
+
+    const parsed = parseCsv(input);
+    if (parsed.error) {
+      setStatus(parsed.error);
+      setOutput("");
+      return;
+    }
+
+    setOutput(JSON.stringify(parsed.rows, null, 2));
+    const count = parsed.rows.length;
+    setStatus(`Converted ${count} row${count === 1 ? "" : "s"} to JSON.`);
+  };
+
+  return (
+    <ToolLayout title="CSV to JSON" description="Convert comma-separated values into a JSON array of objects.">
+      <div className="split-grid">
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          className="tool-textarea"
+          placeholder="name,role\nAlex,Engineer"
+          aria-label="CSV input"
+        />
+        <textarea
+          value={output}
+          onChange={(e) => setOutput(e.target.value)}
+          className="tool-textarea"
+          placeholder='[{"name":"Alex","role":"Engineer"}]'
+          aria-label="JSON output"
+        />
+      </div>
+      <div className="row-actions"><button onClick={convert}>Convert</button></div>
+      {status && <p className={status.includes("Converted") ? "status success" : "status error"}>{status}</p>}
+    </ToolLayout>
+  );
+}
+
+function CsvComparisonTool() {
+  const [firstCsv, setFirstCsv] = useState("id,name,score\n1,Alex,92\n2,Sam,88");
+  const [secondCsv, setSecondCsv] = useState("id,name,score\n1,Alex,92\n2,Sam,90");
+  const [diffs, setDiffs] = useState([]);
+  const [meta, setMeta] = useState(null);
+  const [feedback, setFeedback] = useState({ message: "", variant: "info" });
+
+  const compare = () => {
+    if (!firstCsv.trim() || !secondCsv.trim()) {
+      setFeedback({ message: "Both CSV inputs are required.", variant: "error" });
+      setDiffs([]);
+      setMeta(null);
+      return;
+    }
+
+    const parsedFirst = parseCsv(firstCsv);
+    if (parsedFirst.error) {
+      setFeedback({ message: `First CSV: ${parsedFirst.error}`, variant: "error" });
+      setDiffs([]);
+      setMeta(null);
+      return;
+    }
+
+    const parsedSecond = parseCsv(secondCsv);
+    if (parsedSecond.error) {
+      setFeedback({ message: `Second CSV: ${parsedSecond.error}`, variant: "error" });
+      setDiffs([]);
+      setMeta(null);
+      return;
+    }
+
+    const headers = Array.from(new Set([...parsedFirst.headers, ...parsedSecond.headers]));
+    const maxRows = Math.max(parsedFirst.rows.length, parsedSecond.rows.length);
+    const differences = [];
+
+    for (let index = 0; index < maxRows; index += 1) {
+      const rowFirst = parsedFirst.rows[index];
+      const rowSecond = parsedSecond.rows[index];
+      const hasFirstRow = Boolean(rowFirst);
+      const hasSecondRow = Boolean(rowSecond);
+
+      headers.forEach((header) => {
+        const firstValue = hasFirstRow ? (Object.prototype.hasOwnProperty.call(rowFirst, header) ? rowFirst[header] ?? "" : "") : "";
+        const secondValue = hasSecondRow ? (Object.prototype.hasOwnProperty.call(rowSecond, header) ? rowSecond[header] ?? "" : "") : "";
+
+        if (firstValue !== secondValue) {
+          differences.push({
+            id: `${index}-${header}`,
+            row: index + 1,
+            column: header,
+            first: hasFirstRow ? (Object.prototype.hasOwnProperty.call(rowFirst, header) ? firstValue : "(missing column)") : "(missing row)",
+            second: hasSecondRow ? (Object.prototype.hasOwnProperty.call(rowSecond, header) ? secondValue : "(missing column)") : "(missing row)"
+          });
+        }
+      });
+    }
+
+    setMeta({
+      headersCount: headers.length,
+      comparedRows: maxRows,
+      firstRows: parsedFirst.rows.length,
+      secondRows: parsedSecond.rows.length
+    });
+    setDiffs(differences);
+
+    if (differences.length) {
+      setFeedback({
+        message: `Found ${differences.length} differing cell${differences.length === 1 ? "" : "s"} across ${headers.length} column${headers.length === 1 ? "" : "s"}.`,
+        variant: "warning"
+      });
+    } else {
+      setFeedback({ message: "All compared cells match.", variant: "success" });
+    }
+  };
+
+  return (
+    <ToolLayout title="CSV Comparison" description="Compare two CSV datasets to spot column-level differences.">
+      <div className="split-grid">
+        <textarea
+          value={firstCsv}
+          onChange={(e) => setFirstCsv(e.target.value)}
+          className="tool-textarea"
+          placeholder="id,name,score\n1,Alex,92"
+          aria-label="First CSV input"
+        />
+        <textarea
+          value={secondCsv}
+          onChange={(e) => setSecondCsv(e.target.value)}
+          className="tool-textarea"
+          placeholder="id,name,score\n1,Alex,92"
+          aria-label="Second CSV input"
+        />
+      </div>
+      <div className="row-actions"><button onClick={compare}>Compare CSVs</button></div>
+      {feedback.message && <p className={`status ${feedback.variant}`}>{feedback.message}</p>}
+      {meta && (
+        <div className="glass-panel comparison-summary">
+          <p>Headers compared: <strong>{meta.headersCount}</strong></p>
+          <p>Rows in first CSV: <strong>{meta.firstRows}</strong></p>
+          <p>Rows in second CSV: <strong>{meta.secondRows}</strong></p>
+          <p>Rows compared: <strong>{meta.comparedRows}</strong></p>
+        </div>
+      )}
+      {meta && diffs.length === 0 && <div className="glass-panel output-panel">No differences detected across compared rows.</div>}
+      {diffs.length > 0 && (
+        <div className="csv-diff-table">
+          <div className="csv-diff-row csv-diff-header">
+            <span>Row #</span>
+            <span>Column</span>
+            <span>First CSV</span>
+            <span>Second CSV</span>
+          </div>
+          {diffs.map((diff) => (
+            <div key={diff.id} className="csv-diff-row">
+              <span className="csv-diff-badge">{diff.row}</span>
+              <span>{diff.column}</span>
+              <span>{diff.first || ""}</span>
+              <span>{diff.second || ""}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </ToolLayout>
   );
 }
@@ -5284,6 +5532,8 @@ const TOOL_DEFINITIONS = [
   { category: "JSON", path: "/json-linter", title: "JSON Linter", description: "Lint and parse diagnostics.", component: JsonLinter },
   { category: "JSON", path: "/json-sorter", title: "JSON Sorter", description: "Sort keys recursively.", component: JsonSorter },
   { category: "JSON", path: "/json-to-csv", title: "JSON to CSV", description: "Convert object arrays to CSV.", component: JsonToCsv },
+  { category: "Text", path: "/csv-to-json", title: "CSV to JSON", description: "Convert CSV into JSON arrays.", component: CsvToJsonTool },
+  { category: "Text", path: "/csv-comparison", title: "CSV Comparison", description: "Compare two CSV datasets.", component: CsvComparisonTool },
   { category: "Text", path: "/text-editor", title: "Text Editor", description: "Edit and transform text.", component: TextEditor },
   { category: "Text", path: "/text-diff", title: "Text Diff Checker", description: "Compare text line-by-line.", component: TextDiffChecker },
   { category: "Text", path: "/word-counter", title: "Word Counter", description: "Count words and chars.", component: WordCounter },
