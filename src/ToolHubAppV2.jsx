@@ -2445,6 +2445,78 @@ function escapeJsonKey(key) {
   return `["${key.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"]`;
 }
 
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function areAllObjects(arr) {
+  return arr.length > 0 && arr.every(isPlainObject);
+}
+
+function findArrayKey(arrA, arrB) {
+  const allItems = [...arrA, ...arrB];
+  if (!allItems.length || !allItems.every(isPlainObject)) return null;
+
+  const commonKeys = Object.keys(allItems[0]).filter((key) =>
+    allItems.every((item) => key in item)
+  );
+
+  const preferred = ["id", "_id", "key", "uuid", "code", "name", "source"];
+  const candidates = [
+    ...preferred.filter((k) => commonKeys.includes(k)),
+    ...commonKeys.filter((k) => !preferred.includes(k))
+  ];
+
+  for (const candidate of candidates) {
+    const valuesA = arrA.map((item) => JSON.stringify(item[candidate]));
+    const valuesB = arrB.map((item) => JSON.stringify(item[candidate]));
+    if (new Set(valuesA).size === valuesA.length && new Set(valuesB).size === valuesB.length) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function countObjectSimilarity(objA, objB) {
+  const keys = new Set([...Object.keys(objA), ...Object.keys(objB)]);
+  let matches = 0;
+  for (const key of keys) {
+    if (JSON.stringify(objA[key]) === JSON.stringify(objB[key])) matches += 1;
+  }
+  return matches / Math.max(keys.size, 1);
+}
+
+function matchArraysBySimilarity(arrA, arrB) {
+  const matched = [];
+  const usedRight = new Set();
+
+  for (let i = 0; i < arrA.length; i += 1) {
+    let bestIndex = -1;
+    let bestScore = -1;
+    for (let j = 0; j < arrB.length; j += 1) {
+      if (usedRight.has(j)) continue;
+      const score = countObjectSimilarity(arrA[i], arrB[j]);
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = j;
+      }
+    }
+    if (bestIndex >= 0 && bestScore > 0) {
+      matched.push({ leftIdx: i, rightIdx: bestIndex, score: bestScore });
+      usedRight.add(bestIndex);
+    } else {
+      matched.push({ leftIdx: i, rightIdx: -1, score: 0 });
+    }
+  }
+
+  const unmatchedRight = [];
+  for (let j = 0; j < arrB.length; j += 1) {
+    if (!usedRight.has(j)) unmatchedRight.push(j);
+  }
+
+  return { matched, unmatchedRight };
+}
+
 function deepJsonDiff(left, right, path = "", depth = 0) {
   const MAX_DEPTH = 50;
   const diffs = [];
@@ -2477,6 +2549,48 @@ function deepJsonDiff(left, right, path = "", depth = 0) {
   if (leftType === "null") return diffs;
 
   if (leftType === "array") {
+    const bothObjects = areAllObjects(left) && areAllObjects(right);
+
+    if (bothObjects) {
+      const uniqueKey = findArrayKey(left, right);
+
+      if (uniqueKey) {
+        const mapLeft = new Map(left.map((item) => [JSON.stringify(item[uniqueKey]), item]));
+        const mapRight = new Map(right.map((item) => [JSON.stringify(item[uniqueKey]), item]));
+        const allKeyValues = new Set([...mapLeft.keys(), ...mapRight.keys()]);
+
+        for (const keyVal of allKeyValues) {
+          const label = JSON.parse(keyVal);
+          const keyDisplay = typeof label === "string" ? `"${label}"` : label;
+          const itemPath = `${path}[${uniqueKey}=${keyDisplay}]`;
+
+          if (!mapLeft.has(keyVal)) {
+            diffs.push({ path: itemPath, type: "added", left: undefined, right: mapRight.get(keyVal) });
+          } else if (!mapRight.has(keyVal)) {
+            diffs.push({ path: itemPath, type: "removed", left: mapLeft.get(keyVal), right: undefined });
+          } else {
+            diffs.push(...deepJsonDiff(mapLeft.get(keyVal), mapRight.get(keyVal), itemPath, depth + 1));
+          }
+        }
+        return diffs;
+      }
+
+      const { matched, unmatchedRight } = matchArraysBySimilarity(left, right);
+
+      for (const pair of matched) {
+        const itemPath = `${path}[${pair.leftIdx}]`;
+        if (pair.rightIdx < 0) {
+          diffs.push({ path: itemPath, type: "removed", left: left[pair.leftIdx], right: undefined });
+        } else {
+          diffs.push(...deepJsonDiff(left[pair.leftIdx], right[pair.rightIdx], itemPath, depth + 1));
+        }
+      }
+      for (const j of unmatchedRight) {
+        diffs.push({ path: `${path}[+${j}]`, type: "added", left: undefined, right: right[j] });
+      }
+      return diffs;
+    }
+
     const maxLen = Math.max(left.length, right.length);
     for (let i = 0; i < maxLen; i += 1) {
       const itemPath = `${path}[${i}]`;
@@ -2537,8 +2651,9 @@ function JsonCompareTool() {
     roles: ["admin", "viewer", "auditor"],
     address: { city: "Mumbai", geo: { lat: 19.0, lng: 72.8, alt: 14 } },
     projects: [
+      { id: 2, title: "Beta", tags: ["api", "graphql"] },
       { id: 1, title: "Alpha Rewrite", tags: ["web", "next"] },
-      { id: 2, title: "Beta", tags: ["api", "graphql"] }
+      { id: 3, title: "Gamma", tags: ["mobile"] }
     ],
     department: "Engineering"
   }, null, 2);
