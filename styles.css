@@ -823,6 +823,101 @@ a {
   color: var(--text-secondary);
 }
 
+.json-diff-table {
+  margin-top: 18px;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  box-shadow: var(--shadow-sm);
+}
+
+.json-diff-row {
+  display: grid;
+  grid-template-columns: 100px minmax(140px, 1.2fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px 18px;
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  align-items: center;
+  font-size: 0.92rem;
+}
+
+.json-diff-row:nth-child(even) {
+  background: rgba(226, 232, 255, 0.28);
+}
+
+.json-diff-row:last-child {
+  border-bottom: none;
+}
+
+.json-diff-header-row {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.16), rgba(129, 140, 248, 0.18));
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--primary-dark);
+  font-size: 0.82rem;
+}
+
+.json-diff-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.json-diff-added {
+  background: rgba(34, 197, 94, 0.18);
+  color: #166534;
+}
+
+.json-diff-removed {
+  background: rgba(239, 68, 68, 0.16);
+  color: #991b1b;
+}
+
+.json-diff-modified {
+  background: rgba(234, 179, 8, 0.18);
+  color: #854d0e;
+}
+
+.json-diff-type {
+  background: rgba(168, 85, 247, 0.16);
+  color: #6b21a8;
+}
+
+.json-diff-path {
+  font-family: "Fira Code", "Consolas", monospace;
+  font-size: 0.88rem;
+  word-break: break-all;
+  color: var(--primary-dark);
+  font-weight: 600;
+}
+
+.json-diff-val {
+  word-break: break-all;
+  font-family: "Fira Code", "Consolas", monospace;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.json-diff-val-old {
+  background: rgba(239, 68, 68, 0.08);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.json-diff-val-new {
+  background: rgba(34, 197, 94, 0.08);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
 .contact-note {
   padding: 24px;
   max-width: 640px;

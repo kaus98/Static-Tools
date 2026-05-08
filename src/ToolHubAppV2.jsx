@@ -71,23 +71,32 @@ function sortJsonDeep(value) {
   return value;
 }
 
-function toCsv(rows) {
+const CSV_DELIMITERS = [
+  { value: ",", label: "Comma (,)" },
+  { value: ";", label: "Semicolon (;)" },
+  { value: "\t", label: "Tab (\\t)" },
+  { value: "|", label: "Pipe (|)" },
+  { value: ":", label: "Colon (:)" },
+  { value: " ", label: "Space ( )" }
+];
+
+function toCsv(rows, delimiter = ",") {
   if (!rows.length) {
     return "";
   }
 
   const headers = [...new Set(rows.flatMap((row) => Object.keys(row)))];
   const escape = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
-  const lines = [headers.join(",")];
+  const lines = [headers.join(delimiter)];
 
   rows.forEach((row) => {
-    lines.push(headers.map((header) => escape(row[header])).join(","));
+    lines.push(headers.map((header) => escape(row[header])).join(delimiter));
   });
 
   return lines.join("\n");
 }
 
-function parseCsv(text) {
+function parseCsv(text, delimiter = ",") {
   const trimmed = text.trim();
   if (!trimmed) {
     return { headers: [], rows: [], error: "CSV input is empty." };
@@ -112,7 +121,7 @@ function parseCsv(text) {
       continue;
     }
 
-    if (char === "," && !inQuotes) {
+    if (delimiter === "\t" ? char === "\t" && !inQuotes : char === delimiter && !inQuotes) {
       currentRow.push(currentValue.trim());
       currentValue = "";
       continue;
@@ -2387,6 +2396,7 @@ function JsonToCsv() {
   const [input, setInput] = useState('[{"name":"Alex","age":28},{"name":"Sam","age":32}]');
   const [output, setOutput] = useState("");
   const [status, setStatus] = useState("");
+  const [delimiter, setDelimiter] = useState(",");
 
   const convert = () => {
     const validationError = validators.jsonText(input);
@@ -2402,7 +2412,7 @@ function JsonToCsv() {
       return;
     }
 
-    setOutput(toCsv(rows));
+    setOutput(toCsv(rows, delimiter));
     setStatus("CSV generated.");
   };
 
@@ -2412,16 +2422,247 @@ function JsonToCsv() {
         <textarea value={input} onChange={(e) => setInput(e.target.value)} className="tool-textarea" />
         <textarea value={output} onChange={(e) => setOutput(e.target.value)} className="tool-textarea" />
       </div>
-      <div className="row-actions"><button onClick={convert}>Convert</button></div>
+      <div className="row-actions">
+        <select value={delimiter} onChange={(e) => setDelimiter(e.target.value)} aria-label="Delimiter">
+          {CSV_DELIMITERS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+        </select>
+        <button onClick={convert}>Convert</button>
+      </div>
       {status && <p className={status === "CSV generated." ? "status success" : "status error"}>{status}</p>}
   </ToolLayout>
 );
+}
+
+function getJsonType(value) {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
+function escapeJsonKey(key) {
+  if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key)) return `.${key}`;
+  return `["${key.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"]`;
+}
+
+function deepJsonDiff(left, right, path = "", depth = 0) {
+  const MAX_DEPTH = 50;
+  const diffs = [];
+  const currentPath = path || "(root)";
+
+  if (depth > MAX_DEPTH) {
+    diffs.push({ path: currentPath, type: "modified", left: "(max depth)", right: "(max depth)" });
+    return diffs;
+  }
+
+  if (left === right) return diffs;
+
+  const leftType = getJsonType(left);
+  const rightType = getJsonType(right);
+
+  if (leftType === "undefined") {
+    diffs.push({ path: currentPath, type: "added", left: undefined, right });
+    return diffs;
+  }
+  if (rightType === "undefined") {
+    diffs.push({ path: currentPath, type: "removed", left, right: undefined });
+    return diffs;
+  }
+
+  if (leftType !== rightType) {
+    diffs.push({ path: currentPath, type: "type_changed", left, right, leftType, rightType });
+    return diffs;
+  }
+
+  if (leftType === "null") return diffs;
+
+  if (leftType === "array") {
+    const maxLen = Math.max(left.length, right.length);
+    for (let i = 0; i < maxLen; i += 1) {
+      const itemPath = `${path}[${i}]`;
+      if (i >= left.length) {
+        diffs.push({ path: itemPath, type: "added", left: undefined, right: right[i] });
+      } else if (i >= right.length) {
+        diffs.push({ path: itemPath, type: "removed", left: left[i], right: undefined });
+      } else {
+        diffs.push(...deepJsonDiff(left[i], right[i], itemPath, depth + 1));
+      }
+    }
+    return diffs;
+  }
+
+  if (leftType === "object") {
+    const allKeys = new Set([...Object.keys(left), ...Object.keys(right)]);
+    for (const key of allKeys) {
+      const childPath = path + escapeJsonKey(key);
+      diffs.push(...deepJsonDiff(left[key], right[key], childPath, depth + 1));
+    }
+    return diffs;
+  }
+
+  if (left !== right) {
+    diffs.push({ path: currentPath, type: "modified", left, right });
+  }
+  return diffs;
+}
+
+function formatDiffValue(value) {
+  if (value === undefined) return "(missing)";
+  if (value === null) return "null";
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "object") {
+    const str = JSON.stringify(value);
+    return str.length > 120 ? str.slice(0, 117) + "..." : str;
+  }
+  return String(value);
+}
+
+function JsonCompareTool() {
+  const sampleLeft = JSON.stringify({
+    name: "Alex",
+    age: 28,
+    active: true,
+    score: null,
+    roles: ["admin", "editor"],
+    address: { city: "Delhi", zip: "110001", geo: { lat: 28.6, lng: 77.2 } },
+    projects: [
+      { id: 1, title: "Alpha", tags: ["web", "react"] },
+      { id: 2, title: "Beta", tags: ["api"] }
+    ]
+  }, null, 2);
+  const sampleRight = JSON.stringify({
+    name: "Alex",
+    age: 30,
+    active: "yes",
+    roles: ["admin", "viewer", "auditor"],
+    address: { city: "Mumbai", geo: { lat: 19.0, lng: 72.8, alt: 14 } },
+    projects: [
+      { id: 1, title: "Alpha Rewrite", tags: ["web", "next"] },
+      { id: 2, title: "Beta", tags: ["api", "graphql"] }
+    ],
+    department: "Engineering"
+  }, null, 2);
+
+  const [leftJson, setLeftJson] = useState(sampleLeft);
+  const [rightJson, setRightJson] = useState(sampleRight);
+  const [diffs, setDiffs] = useState([]);
+  const [meta, setMeta] = useState(null);
+  const [feedback, setFeedback] = useState({ message: "", variant: "info" });
+
+  const compare = () => {
+    if (!leftJson.trim() || !rightJson.trim()) {
+      setFeedback({ message: "Both JSON inputs are required.", variant: "error" });
+      setDiffs([]);
+      setMeta(null);
+      return;
+    }
+
+    const parsedLeft = parseJsonSafely(leftJson);
+    if (parsedLeft.error) {
+      setFeedback({ message: `Left JSON: ${parsedLeft.error}`, variant: "error" });
+      setDiffs([]);
+      setMeta(null);
+      return;
+    }
+
+    const parsedRight = parseJsonSafely(rightJson);
+    if (parsedRight.error) {
+      setFeedback({ message: `Right JSON: ${parsedRight.error}`, variant: "error" });
+      setDiffs([]);
+      setMeta(null);
+      return;
+    }
+
+    const differences = deepJsonDiff(parsedLeft.parsed, parsedRight.parsed);
+    setDiffs(differences);
+
+    const added = differences.filter((d) => d.type === "added").length;
+    const removed = differences.filter((d) => d.type === "removed").length;
+    const modified = differences.filter((d) => d.type === "modified").length;
+    const typeChanged = differences.filter((d) => d.type === "type_changed").length;
+    setMeta({ total: differences.length, added, removed, modified, typeChanged });
+
+    if (differences.length) {
+      setFeedback({
+        message: `Found ${differences.length} difference${differences.length === 1 ? "" : "s"}: ${added} added, ${removed} removed, ${modified} modified, ${typeChanged} type changed.`,
+        variant: "warning"
+      });
+    } else {
+      setFeedback({ message: "Both JSON values are identical.", variant: "success" });
+    }
+  };
+
+  const badgeClass = (type) => {
+    if (type === "added") return "json-diff-badge json-diff-added";
+    if (type === "removed") return "json-diff-badge json-diff-removed";
+    if (type === "type_changed") return "json-diff-badge json-diff-type";
+    return "json-diff-badge json-diff-modified";
+  };
+
+  const badgeLabel = (diff) => {
+    if (diff.type === "added") return "Added";
+    if (diff.type === "removed") return "Removed";
+    if (diff.type === "type_changed") return `${diff.leftType || "?"} \u2192 ${diff.rightType || "?"}`;
+    return "Modified";
+  };
+
+  return (
+    <ToolLayout title="JSON Compare" description="Deep compare two JSON values field by field. Handles nested objects, arrays, nulls, booleans, and missing fields.">
+      <div className="split-grid">
+        <textarea
+          value={leftJson}
+          onChange={(e) => setLeftJson(e.target.value)}
+          className="tool-textarea"
+          placeholder="Paste first JSON here"
+          aria-label="Left JSON input"
+        />
+        <textarea
+          value={rightJson}
+          onChange={(e) => setRightJson(e.target.value)}
+          className="tool-textarea"
+          placeholder="Paste second JSON here"
+          aria-label="Right JSON input"
+        />
+      </div>
+      <div className="row-actions"><button onClick={compare}>Compare JSON</button></div>
+      {feedback.message && <p className={`status ${feedback.variant}`}>{feedback.message}</p>}
+      {meta && (
+        <div className="glass-panel comparison-summary">
+          <p>Total differences: <strong>{meta.total}</strong></p>
+          <p>Added: <strong>{meta.added}</strong></p>
+          <p>Removed: <strong>{meta.removed}</strong></p>
+          <p>Modified: <strong>{meta.modified}</strong></p>
+          {meta.typeChanged > 0 && <p>Type changed: <strong>{meta.typeChanged}</strong></p>}
+        </div>
+      )}
+      {meta && diffs.length === 0 && <div className="glass-panel output-panel">No differences detected. Both JSON values match completely.</div>}
+      {diffs.length > 0 && (
+        <div className="json-diff-table">
+          <div className="json-diff-row json-diff-header-row">
+            <span>Change</span>
+            <span>Path</span>
+            <span>Left</span>
+            <span>Right</span>
+          </div>
+          {diffs.map((diff, index) => (
+            <div key={index} className="json-diff-row">
+              <span className={badgeClass(diff.type)}>{badgeLabel(diff)}</span>
+              <span className="json-diff-path">{diff.path}</span>
+              <span className={diff.type === "removed" || diff.type === "modified" || diff.type === "type_changed" ? "json-diff-val json-diff-val-old" : "json-diff-val"}>{formatDiffValue(diff.left)}</span>
+              <span className={diff.type === "added" || diff.type === "modified" || diff.type === "type_changed" ? "json-diff-val json-diff-val-new" : "json-diff-val"}>{formatDiffValue(diff.right)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </ToolLayout>
+  );
 }
 
 function CsvToJsonTool() {
   const [input, setInput] = useState("name,role\nAlex,Engineer\nSam,Designer");
   const [output, setOutput] = useState("");
   const [status, setStatus] = useState("");
+  const [delimiter, setDelimiter] = useState(",");
 
   const convert = () => {
     if (!input.trim()) {
@@ -2430,7 +2671,7 @@ function CsvToJsonTool() {
       return;
     }
 
-    const parsed = parseCsv(input);
+    const parsed = parseCsv(input, delimiter);
     if (parsed.error) {
       setStatus(parsed.error);
       setOutput("");
@@ -2443,7 +2684,7 @@ function CsvToJsonTool() {
   };
 
   return (
-    <ToolLayout title="CSV to JSON" description="Convert comma-separated values into a JSON array of objects.">
+    <ToolLayout title="CSV to JSON" description="Convert delimited values into a JSON array of objects.">
       <div className="split-grid">
         <textarea
           value={input}
@@ -2460,7 +2701,12 @@ function CsvToJsonTool() {
           aria-label="JSON output"
         />
       </div>
-      <div className="row-actions"><button onClick={convert}>Convert</button></div>
+      <div className="row-actions">
+        <select value={delimiter} onChange={(e) => setDelimiter(e.target.value)} aria-label="Delimiter">
+          {CSV_DELIMITERS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+        </select>
+        <button onClick={convert}>Convert</button>
+      </div>
       {status && <p className={status.includes("Converted") ? "status success" : "status error"}>{status}</p>}
     </ToolLayout>
   );
@@ -2472,6 +2718,7 @@ function CsvComparisonTool() {
   const [diffs, setDiffs] = useState([]);
   const [meta, setMeta] = useState(null);
   const [feedback, setFeedback] = useState({ message: "", variant: "info" });
+  const [delimiter, setDelimiter] = useState(",");
 
   const compare = () => {
     if (!firstCsv.trim() || !secondCsv.trim()) {
@@ -2481,7 +2728,7 @@ function CsvComparisonTool() {
       return;
     }
 
-    const parsedFirst = parseCsv(firstCsv);
+    const parsedFirst = parseCsv(firstCsv, delimiter);
     if (parsedFirst.error) {
       setFeedback({ message: `First CSV: ${parsedFirst.error}`, variant: "error" });
       setDiffs([]);
@@ -2489,7 +2736,7 @@ function CsvComparisonTool() {
       return;
     }
 
-    const parsedSecond = parseCsv(secondCsv);
+    const parsedSecond = parseCsv(secondCsv, delimiter);
     if (parsedSecond.error) {
       setFeedback({ message: `Second CSV: ${parsedSecond.error}`, variant: "error" });
       setDiffs([]);
@@ -2559,7 +2806,12 @@ function CsvComparisonTool() {
           aria-label="Second CSV input"
         />
       </div>
-      <div className="row-actions"><button onClick={compare}>Compare CSVs</button></div>
+      <div className="row-actions">
+        <select value={delimiter} onChange={(e) => setDelimiter(e.target.value)} aria-label="Delimiter">
+          {CSV_DELIMITERS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+        </select>
+        <button onClick={compare}>Compare CSVs</button>
+      </div>
       {feedback.message && <p className={`status ${feedback.variant}`}>{feedback.message}</p>}
       {meta && (
         <div className="glass-panel comparison-summary">
@@ -5532,6 +5784,7 @@ const TOOL_DEFINITIONS = [
   { category: "JSON", path: "/json-linter", title: "JSON Linter", description: "Lint and parse diagnostics.", component: JsonLinter },
   { category: "JSON", path: "/json-sorter", title: "JSON Sorter", description: "Sort keys recursively.", component: JsonSorter },
   { category: "JSON", path: "/json-to-csv", title: "JSON to CSV", description: "Convert object arrays to CSV.", component: JsonToCsv },
+  { category: "JSON", path: "/json-compare", title: "JSON Compare", description: "Deep compare two JSON values field by field.", component: JsonCompareTool },
   { category: "Text", path: "/csv-to-json", title: "CSV to JSON", description: "Convert CSV into JSON arrays.", component: CsvToJsonTool },
   { category: "Text", path: "/csv-comparison", title: "CSV Comparison", description: "Compare two CSV datasets.", component: CsvComparisonTool },
   { category: "Text", path: "/text-editor", title: "Text Editor", description: "Edit and transform text.", component: TextEditor },
