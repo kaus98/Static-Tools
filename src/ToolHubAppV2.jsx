@@ -71,6 +71,33 @@ function sortJsonDeep(value) {
   return value;
 }
 
+function sortJsonDeepByValues(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map(sortJsonDeepByValues)
+      .sort((a, b) => {
+        const aStr = JSON.stringify(a);
+        const bStr = JSON.stringify(b);
+        return aStr.localeCompare(bStr);
+      });
+  }
+
+  if (value && typeof value === "object") {
+    return Object.keys(value)
+      .sort((a, b) => {
+        const aStr = JSON.stringify(value[a]);
+        const bStr = JSON.stringify(value[b]);
+        return aStr.localeCompare(bStr);
+      })
+      .reduce((acc, key) => {
+        acc[key] = sortJsonDeepByValues(value[key]);
+        return acc;
+      }, {});
+  }
+
+  return value;
+}
+
 const CSV_DELIMITERS = [
   { value: ",", label: "Comma (,)" },
   { value: ";", label: "Semicolon (;)" },
@@ -2377,16 +2404,31 @@ function JsonSorter() {
 
     const { parsed } = parseJsonSafely(input);
     setOutput(JSON.stringify(sortJsonDeep(parsed), null, 2));
-    setStatus("Sorted successfully.");
+    setStatus("Sorted by keys successfully.");
+  };
+
+  const sortValues = () => {
+    const validationError = validators.jsonText(input);
+    if (validationError) {
+      setStatus(validationError);
+      return;
+    }
+
+    const { parsed } = parseJsonSafely(input);
+    setOutput(JSON.stringify(sortJsonDeepByValues(parsed), null, 2));
+    setStatus("Sorted by values successfully.");
   };
 
   return (
-    <ToolLayout title="JSON Sorter" description="Sort JSON keys recursively.">
+    <ToolLayout title="JSON Sorter" description="Sort JSON keys recursively, or sort arrays and object keys by their values.">
       <div className="split-grid">
         <textarea value={input} onChange={(e) => setInput(e.target.value)} className="tool-textarea" />
         <textarea value={output} onChange={(e) => setOutput(e.target.value)} className="tool-textarea" />
       </div>
-      <div className="row-actions"><button onClick={sortKeys}>Sort Keys</button></div>
+      <div className="row-actions">
+        <button onClick={sortKeys}>Sort Keys</button>
+        <button onClick={sortValues}>Sort by Values</button>
+      </div>
       {status && <p className={status.startsWith("Invalid") ? "status error" : "status success"}>{status}</p>}
     </ToolLayout>
   );
