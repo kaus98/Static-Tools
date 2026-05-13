@@ -76,8 +76,14 @@ function sortJsonDeepByValues(value) {
     return value
       .map(sortJsonDeepByValues)
       .sort((a, b) => {
-        const aStr = JSON.stringify(a);
-        const bStr = JSON.stringify(b);
+        const aVal = a;
+        const bVal = b;
+        const aIsNum = typeof aVal === "number" && !Number.isNaN(aVal);
+        const bIsNum = typeof bVal === "number" && !Number.isNaN(bVal);
+
+        if (aIsNum && bIsNum) return aVal - bVal;
+        const aStr = JSON.stringify(aVal);
+        const bStr = JSON.stringify(bVal);
         return aStr.localeCompare(bStr);
       });
   }
@@ -85,8 +91,14 @@ function sortJsonDeepByValues(value) {
   if (value && typeof value === "object") {
     return Object.keys(value)
       .sort((a, b) => {
-        const aStr = JSON.stringify(value[a]);
-        const bStr = JSON.stringify(value[b]);
+        const aVal = value[a];
+        const bVal = value[b];
+        const aIsNum = typeof aVal === "number" && !Number.isNaN(aVal);
+        const bIsNum = typeof bVal === "number" && !Number.isNaN(bVal);
+
+        if (aIsNum && bIsNum) return aVal - bVal;
+        const aStr = JSON.stringify(aVal);
+        const bStr = JSON.stringify(bVal);
         return aStr.localeCompare(bStr);
       })
       .reduce((acc, key) => {
