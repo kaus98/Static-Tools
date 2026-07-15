@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, memo } from "react";
 import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import * as arrow from "apache-arrow";
-import wasmInit, { writeParquet, Table, WriterPropertiesBuilder, Compression } from "parquet-wasm";
+import * as parquetWasm from "parquet-wasm";
 
 const COOKIE_DAYS = 30;
 
@@ -3026,10 +3026,16 @@ function CsvToParquetTool() {
   useEffect(() => {
     const init = async () => {
       try {
-        await wasmInit();
+        const wasmUrl = "https://cdn.jsdelivr.net/npm/parquet-wasm@0.6.0/esm/parquet_wasm_bg.wasm";
+        await parquetWasm.default(wasmUrl);
+        if (typeof parquetWasm.writeParquet !== "function" || typeof parquetWasm.Table !== "function") {
+          setStatus("Parquet WASM initialized but functions not available.");
+          return;
+        }
         setWasmInitialized(true);
       } catch (error) {
         setStatus(`Failed to initialize Parquet WASM: ${error.message}`);
+        console.error("WASM init error:", error);
       }
     };
     init();
@@ -3059,14 +3065,13 @@ function CsvToParquetTool() {
     try {
       const arrays = {};
       parsed.headers.forEach((header) => {
-        const values = parsed.rows.map((row) => row[header] ?? "");
-        arrays[header] = arrow.makeArrowVector(values);
+        arrays[header] = parsed.rows.map((row) => row[header] ?? "");
       });
 
       const arrowTable = arrow.tableFromArrays(arrays);
-      const wasmTable = Table.fromIPCStream(arrow.tableToIPC(arrowTable, "stream"));
-      const writerProperties = new WriterPropertiesBuilder().setCompression(Compression.SNAPPY).build();
-      const parquetUint8Array = writeParquet(wasmTable, writerProperties);
+      const wasmTable = parquetWasm.Table.fromIPCStream(arrow.tableToIPC(arrowTable, "stream"));
+      const writerProperties = new parquetWasm.WriterPropertiesBuilder().setCompression(parquetWasm.Compression.SNAPPY).build();
+      const parquetUint8Array = parquetWasm.writeParquet(wasmTable, writerProperties);
 
       const blob = new Blob([parquetUint8Array], { type: "application/octet-stream" });
       const url = URL.createObjectURL(blob);
@@ -3075,6 +3080,7 @@ function CsvToParquetTool() {
       setStatus(`Converted ${parsed.rows.length} row${parsed.rows.length === 1 ? "" : "s"} to Parquet.`);
     } catch (error) {
       setStatus(`Error converting to Parquet: ${error.message}`);
+      console.error("Parquet conversion error:", error);
       setDownloadUrl(null);
       setFileName("");
     }
