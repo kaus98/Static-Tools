@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, memo } from "react";
 import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import * as arrow from "apache-arrow";
-import { initWasm, writeParquet, Table, WriterPropertiesBuilder, Compression } from "parquet-wasm";
+import wasmInit, { writeParquet, Table, WriterPropertiesBuilder, Compression } from "parquet-wasm";
 
 const COOKIE_DAYS = 30;
 
@@ -3026,7 +3026,7 @@ function CsvToParquetTool() {
   useEffect(() => {
     const init = async () => {
       try {
-        await initWasm();
+        await wasmInit();
         setWasmInitialized(true);
       } catch (error) {
         setStatus(`Failed to initialize Parquet WASM: ${error.message}`);
