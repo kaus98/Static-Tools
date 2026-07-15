@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, memo } from "react";
 import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import * as arrow from "apache-arrow";
+import { initWasm, writeParquet, Table, WriterPropertiesBuilder, Compression } from "parquet-wasm";
 
 const COOKIE_DAYS = 30;
 
@@ -3013,6 +3015,103 @@ function CsvComparisonTool() {
   );
 }
 
+function CsvToParquetTool() {
+  const [input, setInput] = useState("name,age,city\nAlex,28,Delhi\nSam,32,Mumbai");
+  const [status, setStatus] = useState("");
+  const [delimiter, setDelimiter] = useState(",");
+  const [downloadUrl, setDownloadUrl] = useState(null);
+  const [fileName, setFileName] = useState("");
+  const [wasmInitialized, setWasmInitialized] = useState(false);
+
+  useEffect(() => {
+    const init = async () => {
+      try {
+        await initWasm();
+        setWasmInitialized(true);
+      } catch (error) {
+        setStatus(`Failed to initialize Parquet WASM: ${error.message}`);
+      }
+    };
+    init();
+  }, []);
+
+  const convert = async () => {
+    if (!wasmInitialized) {
+      setStatus("Parquet WASM not initialized yet. Please wait...");
+      return;
+    }
+
+    if (!input.trim()) {
+      setStatus("CSV input is required.");
+      setDownloadUrl(null);
+      setFileName("");
+      return;
+    }
+
+    const parsed = parseCsv(input, delimiter);
+    if (parsed.error) {
+      setStatus(parsed.error);
+      setDownloadUrl(null);
+      setFileName("");
+      return;
+    }
+
+    try {
+      const arrays = {};
+      parsed.headers.forEach((header) => {
+        const values = parsed.rows.map((row) => row[header] ?? "");
+        arrays[header] = arrow.makeArrowVector(values);
+      });
+
+      const arrowTable = arrow.tableFromArrays(arrays);
+      const wasmTable = Table.fromIPCStream(arrow.tableToIPC(arrowTable, "stream"));
+      const writerProperties = new WriterPropertiesBuilder().setCompression(Compression.SNAPPY).build();
+      const parquetUint8Array = writeParquet(wasmTable, writerProperties);
+
+      const blob = new Blob([parquetUint8Array], { type: "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+      setDownloadUrl(url);
+      setFileName("output.parquet");
+      setStatus(`Converted ${parsed.rows.length} row${parsed.rows.length === 1 ? "" : "s"} to Parquet.`);
+    } catch (error) {
+      setStatus(`Error converting to Parquet: ${error.message}`);
+      setDownloadUrl(null);
+      setFileName("");
+    }
+  };
+
+  const handleDownload = () => {
+    if (downloadUrl) {
+      const a = document.createElement("a");
+      a.href = downloadUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  };
+
+  return (
+    <ToolLayout title="CSV to Parquet" description="Convert CSV data to Parquet format for efficient storage and analytics.">
+      <textarea
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        className="tool-textarea"
+        placeholder="name,age,city\nAlex,28,Delhi"
+        aria-label="CSV input"
+      />
+      <div className="row-actions">
+        <select value={delimiter} onChange={(e) => setDelimiter(e.target.value)} aria-label="Delimiter">
+          {CSV_DELIMITERS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+        </select>
+        <button onClick={convert}>Convert to Parquet</button>
+        {downloadUrl && <button onClick={handleDownload}>Download Parquet</button>}
+      </div>
+      {status && <p className={status.includes("Converted") ? "status success" : "status error"}>{status}</p>}
+    </ToolLayout>
+  );
+}
+
 function TextEditor() {
   const [text, setText] = useState("Write, edit, and transform your text here.");
   const [status, setStatus] = useState("");
@@ -5956,6 +6055,7 @@ const TOOL_DEFINITIONS = [
   { category: "JSON", path: "/json-compare", title: "JSON Compare", description: "Deep compare two JSON values field by field.", component: JsonCompareTool },
   { category: "Text", path: "/csv-to-json", title: "CSV to JSON", description: "Convert CSV into JSON arrays.", component: CsvToJsonTool },
   { category: "Text", path: "/csv-comparison", title: "CSV Comparison", description: "Compare two CSV datasets.", component: CsvComparisonTool },
+  { category: "Web & Data", path: "/csv-to-parquet", title: "CSV to Parquet", description: "Convert CSV to Parquet format for download.", component: CsvToParquetTool },
   { category: "Text", path: "/text-editor", title: "Text Editor", description: "Edit and transform text.", component: TextEditor },
   { category: "Text", path: "/text-diff", title: "Text Diff Checker", description: "Compare text line-by-line.", component: TextDiffChecker },
   { category: "Text", path: "/word-counter", title: "Word Counter", description: "Count words and chars.", component: WordCounter },
