@@ -1,7 +1,20 @@
 import { useEffect, useMemo, useState, memo } from "react";
 import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import * as arrow from "apache-arrow";
-import * as parquetWasm from "parquet-wasm";
+
+const PARQUET_WASM_CDN_URL = "https://cdn.jsdelivr.net/npm/parquet-wasm@0.6.0/esm/+esm";
+let parquetModulePromise = null;
+
+function loadParquetModule() {
+  if (!parquetModulePromise) {
+    parquetModulePromise = import(/* @vite-ignore */ PARQUET_WASM_CDN_URL)
+      .then(async (module) => {
+        await module.default();
+        return module;
+      });
+  }
+  return parquetModulePromise;
+}
 
 const COOKIE_DAYS = 30;
 
@@ -3022,28 +3035,30 @@ function CsvToParquetTool() {
   const [downloadUrl, setDownloadUrl] = useState(null);
   const [fileName, setFileName] = useState("");
   const [wasmInitialized, setWasmInitialized] = useState(false);
+  const [parquetModule, setParquetModule] = useState(null);
 
   useEffect(() => {
-    const init = async () => {
-      try {
-        const wasmUrl = "https://cdn.jsdelivr.net/npm/parquet-wasm@0.6.0/esm/parquet_wasm_bg.wasm";
-        await parquetWasm.default(wasmUrl);
-        if (typeof parquetWasm.writeParquet !== "function" || typeof parquetWasm.Table !== "function") {
-          setStatus("Parquet WASM initialized but functions not available.");
-          return;
-        }
+    let cancelled = false;
+    loadParquetModule()
+      .then((module) => {
+        if (cancelled) return;
+        setParquetModule(module);
         setWasmInitialized(true);
-      } catch (error) {
-        setStatus(`Failed to initialize Parquet WASM: ${error.message}`);
-        console.error("WASM init error:", error);
-      }
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setStatus(`Failed to load Parquet module: ${error.message}`);
+        console.error("Parquet module load error:", error);
+      });
+
+    return () => {
+      cancelled = true;
     };
-    init();
   }, []);
 
   const convert = async () => {
-    if (!wasmInitialized) {
-      setStatus("Parquet WASM not initialized yet. Please wait...");
+    if (!wasmInitialized || !parquetModule) {
+      setStatus("Parquet module is still loading. Please wait...");
       return;
     }
 
@@ -3063,15 +3078,16 @@ function CsvToParquetTool() {
     }
 
     try {
+      const { Table, WriterPropertiesBuilder, Compression, writeParquet } = parquetModule;
       const arrays = {};
       parsed.headers.forEach((header) => {
         arrays[header] = parsed.rows.map((row) => row[header] ?? "");
       });
 
       const arrowTable = arrow.tableFromArrays(arrays);
-      const wasmTable = parquetWasm.Table.fromIPCStream(arrow.tableToIPC(arrowTable, "stream"));
-      const writerProperties = new parquetWasm.WriterPropertiesBuilder().setCompression(parquetWasm.Compression.SNAPPY).build();
-      const parquetUint8Array = parquetWasm.writeParquet(wasmTable, writerProperties);
+      const wasmTable = Table.fromIPCStream(arrow.tableToIPC(arrowTable, "stream"));
+      const writerProperties = new WriterPropertiesBuilder().setCompression(Compression.SNAPPY).build();
+      const parquetUint8Array = writeParquet(wasmTable, writerProperties);
 
       const blob = new Blob([parquetUint8Array], { type: "application/octet-stream" });
       const url = URL.createObjectURL(blob);
