@@ -789,10 +789,65 @@ const ToolLayout = memo(function ToolLayout({ title, description, children }) {
   );
 });
 
+function copyToClipboard(text, onDone) {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(onDone).catch(() => onDone && onDone(false));
+  } else {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    try {
+      document.execCommand("copy");
+      onDone && onDone();
+    } catch {
+      onDone && onDone(false);
+    }
+    document.body.removeChild(textarea);
+  }
+}
+
 const JsonNode = memo(function JsonNode({ name, value, level = 0, path, collapsedPaths, onToggle }) {
   const paddingLeft = 12 + level * 14;
   const isCollapsible = Array.isArray(value) || (value && typeof value === "object");
   const isCollapsed = isCollapsible && collapsedPaths.has(path);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = (e, text) => {
+    e.stopPropagation();
+    copyToClipboard(text, (ok) => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
+  };
+
+  const renderCopyButton = (text) => (
+    <button
+      onClick={(e) => handleCopy(e, text)}
+      className="copy-key-button"
+      title="Copy value"
+      style={{
+        marginLeft: 6,
+        fontSize: 10,
+        lineHeight: 1,
+        padding: "1px 4px",
+        border: "none",
+        borderRadius: 3,
+        background: "transparent",
+        color: "var(--text-muted, #888)",
+        cursor: "pointer",
+        opacity: 0.5,
+        transition: "opacity 0.15s ease"
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+      onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
+    >
+      {copied ? "✓" : "⧉"}
+    </button>
+  );
 
   if (Array.isArray(value)) {
     return (
@@ -806,6 +861,7 @@ const JsonNode = memo(function JsonNode({ name, value, level = 0, path, collapse
             {isCollapsible ? (isCollapsed ? "▶" : "▼") : "•"}
           </span>
           <strong>{name}</strong>: [{value.length}]
+          {renderCopyButton(JSON.stringify(value))}
         </div>
         {!isCollapsed && value.map((item, index) => (
           <JsonNode key={`${path}-${index}`} name={index} value={item} level={level + 1} path={`${path}.${index}`} collapsedPaths={collapsedPaths} onToggle={onToggle} />
@@ -827,6 +883,7 @@ const JsonNode = memo(function JsonNode({ name, value, level = 0, path, collapse
             {isCollapsible ? (isCollapsed ? "▶" : "▼") : "•"}
           </span>
           <strong>{name}</strong>: {'{'}{entries.length}{'}'}
+          {renderCopyButton(JSON.stringify(value))}
         </div>
         {!isCollapsed && entries.map(([key, nested]) => (
           <JsonNode key={`${path}.${key}`} name={key} value={nested} level={level + 1} path={`${path}.${key}`} collapsedPaths={collapsedPaths} onToggle={onToggle} />
@@ -839,6 +896,7 @@ const JsonNode = memo(function JsonNode({ name, value, level = 0, path, collapse
     <div className="json-node" style={{ paddingLeft }}>
       <span style={{ userSelect: "none", marginRight: 6 }}>•</span>
       <strong>{name}</strong>: {String(value)}
+      {renderCopyButton(String(value))}
     </div>
   );
 });
