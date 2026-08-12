@@ -273,6 +273,64 @@ function rgbToHex(r, g, b) {
   return `#${values.join("")}`.toUpperCase();
 }
 
+function uint8ArrayToBase64(bytes) {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 1) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+function base64ToUint8Array(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function streamToUint8Array(readableStream) {
+  const reader = readableStream.getReader();
+  const chunks = [];
+  let totalLength = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    totalLength += value.length;
+  }
+
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+}
+
+async function compressGzipBase64(text) {
+  const data = new TextEncoder().encode(text);
+  const stream = new CompressionStream("gzip");
+  const writer = stream.writable.getWriter();
+  writer.write(data);
+  writer.close();
+  const compressed = await streamToUint8Array(stream.readable);
+  return uint8ArrayToBase64(compressed);
+}
+
+async function decompressGzipBase64(base64) {
+  const data = base64ToUint8Array(base64);
+  const stream = new DecompressionStream("gzip");
+  const writer = stream.writable.getWriter();
+  writer.write(data);
+  writer.close();
+  const decompressed = await streamToUint8Array(stream.readable);
+  return new TextDecoder().decode(decompressed);
+}
+
 function formatXmlSimple(xml) {
   const normalized = xml.replace(/>\s*</g, "><").trim();
   const tokens = normalized.replace(/></g, ">\n<").split("\n");
@@ -3455,6 +3513,55 @@ function Base64Tool() {
   );
 }
 
+function GzipBase64Tool() {
+  const [input, setInput] = useState('{\n  "message": "Hello JSON"\n}');
+  const [output, setOutput] = useState("");
+  const [status, setStatus] = useState("");
+
+  const encode = async () => {
+    const validationError = validators.requiredText(input, "Input text");
+    if (validationError) {
+      setStatus(validationError);
+      return;
+    }
+
+    try {
+      const encoded = await compressGzipBase64(input);
+      setOutput(encoded);
+      setStatus("Compressed with gzip and Base64 encoded.");
+    } catch {
+      setStatus("Failed to compress/encode.");
+    }
+  };
+
+  const decode = async () => {
+    const validationError = validators.base64(input);
+    if (validationError) {
+      setStatus(validationError);
+      return;
+    }
+
+    try {
+      const decoded = await decompressGzipBase64(input);
+      setOutput(decoded);
+      setStatus("Base64 decoded and gzip decompressed.");
+    } catch {
+      setStatus("Invalid compressed Base64 input.");
+    }
+  };
+
+  return (
+    <ToolLayout title="Gzip + Base64 Encoder / Decoder" description="Gzip compress data, then Base64 encode it; or decode and decompress.">
+      <div className="split-grid">
+        <textarea value={input} onChange={(e) => setInput(e.target.value)} className="tool-textarea" />
+        <textarea value={output} onChange={(e) => setOutput(e.target.value)} className="tool-textarea" />
+      </div>
+      <div className="row-actions"><button onClick={encode}>Encode</button><button onClick={decode}>Decode</button></div>
+      {status && <p className={status.includes("Invalid") || status.includes("Failed") || status.includes("cannot") ? "status error" : "status success"}>{status}</p>}
+    </ToolLayout>
+  );
+}
+
 function UrlCodecTool() {
   const [input, setInput] = useState("https://example.com?q=hello world");
   const [output, setOutput] = useState("");
@@ -6189,6 +6296,7 @@ const TOOL_DEFINITIONS = [
   { category: "Developer", path: "/regex-tester", title: "Regex Tester", description: "Test regex quickly.", component: RegexTester },
   { category: "Developer", path: "/password-generator", title: "Password Generator", description: "Generate random passwords.", component: PasswordGenerator },
   { category: "Developer", path: "/number-base-converter", title: "Number Base Converter", description: "Convert numbers across bases.", component: NumberBaseConverter },
+  { category: "Developer", path: "/gzip-base64", title: "Gzip + Base64", description: "Gzip compress then Base64 encode/decode.", component: GzipBase64Tool },
   { category: "Web & Data", path: "/query-parser", title: "Query Parser/Builder", description: "Work with query strings.", component: QueryStringTool },
   { category: "Web & Data", path: "/cron-parser", title: "Cron Expression Parser", description: "Validate cron and preview next runs.", component: CronExpressionParserTool },
   { category: "Web & Data", path: "/timestamp-converter", title: "Timestamp Converter", description: "Unix and ISO conversion.", component: TimestampConverter },
